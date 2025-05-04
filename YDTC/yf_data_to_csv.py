@@ -11,8 +11,8 @@ FOLDER_OUTPUT = "OUTPUT_CSV_FILES"
 
 
 DICT_INTRADAY_INTERVALS_OFFSETS = {
-        "1m": 0,
-        "2m": 0,
+        "1m": 1,
+        "2m": 1,
         "5m": 1,
         "15m": 2,
         "30m": 5,
@@ -36,7 +36,7 @@ DICT_STOCK_EXCHANGE_HOLIDAYS = {
 ## TODO Implement this function
 def ticker_data_to_csv_basic(tckr: yf.ticker.Ticker, date_start: dt.datetime, date_end: dt.datetime, tf: str) -> None:
     tckr_symbol = tckr.info["symbol"]
-    PATH_FILE_OUTPUT_CSV = f"{WORKDIR}/{FOLDER_OUTPUT}/{date_end.year}-{date_end.month}-{date_end.day}_{tckr_symbol}_{tf}.csv"
+    PATH_FILE_OUTPUT_CSV = f"{FOLDER_OUTPUT}/{date_end.year}-{date_end.month}-{date_end.day}_{tckr_symbol}_{tf}.csv"
 
     tckr_hist = tckr.history(start = date_start, end = date_end + dt.timedelta(days=1),
                              interval = tf, prepost = False)
@@ -158,8 +158,8 @@ msft_hist.to_csv(PATH_FILE_OUTPUT_CSV)"""
 
 def main() -> None:
     
-    if not os.path.exists(f"{WORKDIR}/{FOLDER_OUTPUT}"):
-        os.mkdir(f"{WORKDIR}/{FOLDER_OUTPUT}")
+    if not os.path.exists(f"{FOLDER_OUTPUT}"):
+        os.mkdir(f"{FOLDER_OUTPUT}")
         
     intraday_input_manager()
 
