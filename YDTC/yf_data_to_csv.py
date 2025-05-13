@@ -14,8 +14,8 @@ DICT_INTRADAY_INTERVALS_OFFSETS = {
         "1m": 1,
         "2m": 1,
         "5m": 1,
-        "15m": 2,
-        "30m": 5,
+        "15m": 3,
+        "30m": 6,
         "60m": 19,
         "1h": 19,
 
