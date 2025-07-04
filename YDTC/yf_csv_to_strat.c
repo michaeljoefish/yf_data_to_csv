@@ -22,13 +22,16 @@ typedef struct CSV_DATA{
   
 }CSV;
 
-int to_struct_arr(FILE*, CSV*, int);
+int16_t to_struct_arr(FILE*, CSV*, int);
 void calc_all_SMA(CSV*, int);
-uint32_t prwoso(CSV*, uint8_t, uint8_t, uint16_t*, uint8_t, int);
+int16_t get_entry_index(CSV*, uint8_t, uint8_t, uint8_t, int16_t);
+uint32_t prwoso(CSV*, uint16_t*, int16_t, int16_t);
+void print_all_bars_data(CSV*, int16_t);
+void print_bars_offset_end(CSV*, int16_t, int16_t);
 
 int main(int argc, char **argv){
   //char *filepath = "OUTPUT_CSV_FILES/2025-4-16_C_15m.csv";
-  char *filepath = "OUTPUT_CSV_FILES/2025/05/12_AMZN_5m.csv";
+  char *filepath = "OUTPUT_CSV_FILES/2025-05-12_AMZN_5m.csv";
   if (argc > 1){
     filepath = argv[1];
   }
@@ -39,11 +42,14 @@ int main(int argc, char **argv){
   }
   int length = 500;
   CSV BUF[length];
-  int readable_len = to_struct_arr(RO_INFILE, BUF, length);
+  int16_t readable_len = to_struct_arr(RO_INFILE, BUF, length);
 
   fclose(RO_INFILE);
   RO_INFILE = NULL;
 
+  int16_t entry_index = get_entry_index(BUF, 10, 37, 5, readable_len);
+
+  /*
   int i = 0;
   while( (i < length) && (BUF[i].hr != 0xff) ){
     if(BUF[i].hr == 0x00){ i++; continue;}
@@ -53,23 +59,17 @@ int main(int argc, char **argv){
          BUF[i].low[DECI], BUF[i].low[FRAC], BUF[i].close[DECI], BUF[i].close[FRAC], BUF[i].vol);
     i++;
   }
+  */
 
   calc_all_SMA(BUF, length);
 
-  i = 0;
 
-  while( (i < length) && (BUF[i].hr != 0xff) ){
-    if(BUF[i].hr == 0x00){ i++; continue;}
-    
-    printf("%02hhu:%02hhu:00 , %hu.%04hu , %hu.%04hu , %hu.%04hu , %hu.%04hu , %lu , %hu.%04hu , %hu.%04hu\n",
-         BUF[i].hr, BUF[i].mi, BUF[i].open[DECI], BUF[i].open[FRAC], BUF[i].high[DECI], BUF[i].high[FRAC],
-           BUF[i].low[DECI], BUF[i].low[FRAC], BUF[i].close[DECI], BUF[i].close[FRAC], BUF[i].vol,
-           BUF[i].ma20[DECI], BUF[i].ma20[FRAC], BUF[i].ma50[DECI], BUF[i].ma50[FRAC]);
-    i++;
-  }
+  print_all_bars_data(BUF, readable_len);
+  printf("\n\n");
+  print_bars_offset_end(BUF, 78, readable_len);
 
   uint16_t entry_stop[] = {207,100,205,7500};
-  uint32_t pot_r = prwoso(BUF, 10, 37, entry_stop, 5, readable_len);
+  uint32_t pot_r = prwoso(BUF, entry_stop, entry_index, readable_len);
 
   printf("\nlast bar = %hhu.%hhu\n", BUF[readable_len - 1].hr, BUF[readable_len - 1].mi);
   printf("PRWOSO = %hu.%hu\n", (uint16_t)(pot_r>>16), (uint16_t)(pot_r & 0xffff));
@@ -92,12 +92,12 @@ int main(int argc, char **argv){
   return 0;
 }
 
-int to_struct_arr(FILE* csv_file, CSV* buf, int len){
+int16_t to_struct_arr(FILE* csv_file, CSV* buf, int len){
   // Used to store fractional parts of stats as strings.
   // Will be converted to uint16_t later.
   char r_OHLC[4][21];
 
-  int lines_read = 0;
+  int16_t lines_read = 0;
   int result = 0;
   int ind = 0;
 
@@ -225,7 +225,6 @@ void calc_all_SMA(CSV *buf, int length){
   buf[19].ma20[DECI] = (uint16_t)(temp20 / 10000);
   
   uint64_t temp50 = ((window_sum_50_DECI * 10000) + window_sum_50_FRAC) / 50;
-  printf("%lu\n\n", (window_sum_50_DECI * 10000) + window_sum_50_FRAC);
   buf[49].ma50[FRAC] = (uint16_t)(temp50 % 10000);
   buf[49].ma50[DECI] = (uint16_t)(temp50 / 10000);
 
@@ -255,11 +254,22 @@ void calc_all_SMA(CSV *buf, int length){
 }
 
 
+int16_t get_entry_index(CSV *bars, uint8_t hour, uint8_t mins, uint8_t tf_mins, int16_t len){
+  uint8_t adj_mins = (mins / tf_mins) * tf_mins;
+  
+  int16_t i = len - 1;
+  while ( i > -1 && (bars[i].hr != hour || bars[i].mi != adj_mins) ){
+    i--;
+  }
+
+  return i;
+}
+
 
 // Gets the maximum potential R earned before stop is triggered or end of the day is reached.
 // WARNING: entry and stop fractional values must be normalized to 4 digits.
 //             ex: .92 as a fractional value should be 9200, not 0092
-uint32_t prwoso(CSV *bars, uint8_t hour, uint8_t mins, uint16_t *ExS, uint8_t tf_mins, int r_len){
+uint32_t prwoso(CSV *bars, uint16_t *ExS, int16_t entry_index, int16_t r_len){
   uint16_t e_DECI = ExS[DECI];
   uint16_t e_FRAC = ExS[FRAC];
   uint16_t s_DECI = ExS[2 + DECI];
@@ -267,11 +277,22 @@ uint32_t prwoso(CSV *bars, uint8_t hour, uint8_t mins, uint16_t *ExS, uint8_t tf
   uint16_t max_DECI = 0;
   uint16_t max_FRAC = 0;
 
-  uint8_t adj_mins = (mins / tf_mins) * tf_mins;
+  //uint8_t adj_mins = (mins / tf_mins) * tf_mins;
 
+  for(int16_t i = entry_index; i < r_len; i++){
+    if ( (bars[i].high[DECI] > max_DECI) || (bars[i].high[DECI] == max_DECI && bars[i].high[FRAC] > max_FRAC) ){
+      max_DECI = bars[i].high[DECI];
+      max_FRAC = bars[i].high[FRAC];
+    }
+    if ( (bars[i].low[DECI] < s_DECI) || (bars[i].low[DECI] == s_DECI && bars[i].low[FRAC] <= s_FRAC) ){
+      break;
+    }
+  }
+  
   // Work backwards (since we can't index the start directly.)
   // If low of bar stops out, then set high as the max.
   // Otherwise, if high of bar > max, then set high as max.
+  /*
   int i = r_len - 1;
   while ( i>=0 && ( (bars[i].hr != hour) || (bars[i].mi != adj_mins) ) ){
     if ( (bars[i].low[DECI] < s_DECI) || (bars[i].low[DECI] == s_DECI && bars[i].low[FRAC] <= s_FRAC) ){
@@ -297,6 +318,7 @@ uint32_t prwoso(CSV *bars, uint8_t hour, uint8_t mins, uint16_t *ExS, uint8_t tf
     max_DECI = bars[i].high[DECI];
     max_FRAC = bars[i].high[FRAC];
   }
+  */
 
   
   printf("Highest price WOSO = %hu.%hu\n", max_DECI, max_FRAC);
@@ -309,4 +331,22 @@ uint32_t prwoso(CSV *bars, uint8_t hour, uint8_t mins, uint16_t *ExS, uint8_t tf
 
   // Return the result as a uint32_t, where the leftmost 16 bits are DECI, and rightmost 16 bits are FRAC.
   return ((mees_div / 10000)<<16) | (mees_div % 10000);
+}
+
+void print_all_bars_data(CSV *BUF, int16_t len){
+  for (int16_t i = 0; i<len; i++){
+     printf("%02hhu:%02hhu:00 , %hu.%04hu , %hu.%04hu , %hu.%04hu , %hu.%04hu , %lu , %hu.%04hu , %hu.%04hu\n",
+           BUF[i].hr, BUF[i].mi, BUF[i].open[DECI], BUF[i].open[FRAC], BUF[i].high[DECI], BUF[i].high[FRAC],
+           BUF[i].low[DECI], BUF[i].low[FRAC], BUF[i].close[DECI], BUF[i].close[FRAC], BUF[i].vol,
+           BUF[i].ma20[DECI], BUF[i].ma20[FRAC], BUF[i].ma50[DECI], BUF[i].ma50[FRAC]);
+  }
+}
+
+void print_bars_offset_end(CSV *BUF, int16_t offset, int16_t len){
+  for (int16_t i = len - offset; i<len; i++){
+     printf("%02hhu:%02hhu:00 , %hu.%04hu , %hu.%04hu , %hu.%04hu , %hu.%04hu , %lu , %hu.%04hu , %hu.%04hu\n",
+           BUF[i].hr, BUF[i].mi, BUF[i].open[DECI], BUF[i].open[FRAC], BUF[i].high[DECI], BUF[i].high[FRAC],
+           BUF[i].low[DECI], BUF[i].low[FRAC], BUF[i].close[DECI], BUF[i].close[FRAC], BUF[i].vol,
+           BUF[i].ma20[DECI], BUF[i].ma20[FRAC], BUF[i].ma50[DECI], BUF[i].ma50[FRAC]);
+  }
 }
